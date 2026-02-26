@@ -25,13 +25,10 @@ Perfect for dashboards, financial reports, admin panels, Pandas-style outputs in
 ### Via CDN (quickest – no build step)
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/YOUR-USERNAME/YOUR-REPO/table-maker.js" defer></script>
-<!-- or pinned version -->
-<!-- <script src="https://cdn.jsdelivr.net/gh/YOUR-USERNAME/YOUR-REPO@v1.0.0/table-maker.js" defer></script> -->
+<script src="https://cdn.jsdelivr.net/gh/wingcoat/various/tablemaker/table-maker.js" defer></script>
 ```
-Replace YOUR-USERNAME/YOUR-REPO with your actual GitHub path (or use another CDN like unpkg if preferred).
 
-##Quick Start Example
+## Quick Start Example
 
 ```html
 <!DOCTYPE html>
