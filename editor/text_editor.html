@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Local Text Editor v7 (Tabs)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="text_editor.css" />
+
+  <!-- CodeMirror core + addons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+
+  <!-- modes -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+
+  <!-- folding -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/brace-fold.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/xml-fold.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/comment-fold.min.js"></script>
+
+  <!-- search -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/match-highlighter.min.js"></script>
+
+</head>
+<body class="cm-light">
+  <header id="topbar">
+    <div class="left">
+      <button id="btnNewTab" title="New tab">＋ New</button>
+      <button id="btnOpen" title="Open file">Open</button>
+      <input type="file" id="fileInput" style="display:none">
+      <button id="btnSave" title="Save file">Save</button>
+    </div>
+
+    <div class="center">
+      <div id="tabs" role="tablist" aria-label="Open files"></div>
+    </div>
+
+	  <div class="right">
+		  <select id="modeSelect" title="Select language">
+			  <option value="null">Auto/Text</option>
+			  <option value="htmlmixed">HTML</option>
+			  <option value="javascript">JavaScript</option>
+			  <option value="css">CSS</option>
+			  <option value="application/json">JSON</option>
+		  </select>
+
+		  <label class="font-label">Font: <input id="fontSize" type="number" value="14" min="8" max="32" /></label>
+		  <button id="themeBtn" title="Toggle theme">Theme</button>
+		  <button id="findBtn" title="Find (Ctrl+F)">Find</button>
+	  </div>
+	</header>
+
+  <!-- find bar (VS Code style) -->
+	<div id="findBar" class="hidden" role="region" aria-label="Find">
+		<input id="findInput" placeholder="Find (Ctrl+F)" />
+		<!-- NEW: replace input -->
+		<input id="replaceInput" placeholder="Replace" style="margin-left:4px;" />
+		<!-- Existing navigation -->
+		<button id="prevFind" title="Previous">↑</button>
+		<button id="nextFind" title="Next">↓</button>
+		<span id="findCount">0 of 0</span>
+		<!-- NEW: replace buttons -->
+		<button id="replaceBtn" title="Replace current">Replace</button>
+		<button id="replaceAllBtn" title="Replace all">Replace All</button>
+		<!-- Existing toggles -->
+		<button id="caseBtn" title="Case sensitive">Aa</button>
+		<button id="wordBtn" title="Whole word">Ab</button>
+		<button id="regexBtn" title="Regex">.*</button>
+		<button id="closeFind" title="Close">✕</button>
+	</div>
+
+	<!-- editor container -->
+	<main id="main">
+		<div id="editor"></div>
+	</main>
+
+	<footer id="statusBar" aria-live="polite">Untitled — Line 1, Col 1</footer>
+
+	<script src="text_editor.js"></script>
+</body>
+</html>
