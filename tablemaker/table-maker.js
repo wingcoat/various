@@ -17,7 +17,9 @@ This creates a private lexical scope so that all constants, helper functions, an
 		MONEY:   'money',
 		MONEY2:  'money_2',
 		FLOAT:   'float',
+		FLOAT5: 'float_5',
 		PERCENT: '%',
+		PERCENT1: 'percent',
 		DATE:    'date',
 		TEXT:    'text',
 		// add new types here – the rest of the code just reads COL_TYPES.X
@@ -93,7 +95,7 @@ This creates a private lexical scope so that all constants, helper functions, an
 
 	// TableMaker – utility class
 	class TableMaker {
-		// ---- Cell‑display preparation (pure function) ---------------------
+		// ---- Cell‑display preparation (pure function)
 		static createCellDisplayValues(df) {
 			const rows = df.rows.map(row => {
 				for (const [col, raw] of Object.entries(row)) {
@@ -106,7 +108,7 @@ This creates a private lexical scope so that all constants, helper functions, an
 					const cell = {type, value: raw, disp: raw};
 
 					switch (type) {
-						case COL_TYPES.MONEY_2:
+						case COL_TYPES.MONEY2:
 							const currencies = Array.isArray(colInfo.currency) ? colInfo.currency : [DEFAULTS.CURRENCY];
 							const precisions = Array.isArray(colInfo.precision) ? colInfo.precision : [precision];
 							const amounts = Array.isArray(raw) ? raw : [];
@@ -118,7 +120,11 @@ This creates a private lexical scope so that all constants, helper functions, an
 						case COL_TYPES.FLOAT:
 							cell.disp = Formatter.formatNumber(raw, precision);
 							break;
+						case COL_TYPES.FLOAT5:
+							cell.disp = Formatter.formatNumber(raw/1e5, precision);
+							break;
 						case COL_TYPES.PERCENT:
+						case COL_TYPES.PERCENT1:
 							cell.disp = Formatter.formatPercent(raw, precision);
 							break;
 						case COL_TYPES.DATE:
@@ -339,11 +345,14 @@ This creates a private lexical scope so that all constants, helper functions, an
 		`;
 			const cssColsAlign = `
 			/* Right‑align numeric columns */
-			th[data-type='percent'], td[data-type='percent'],
+			th[data-type='${COL_TYPES.FLOAT}'], td[data-type='${COL_TYPES.FLOAT}'],
+			th[data-type='${COL_TYPES.FLOAT5}'], td[data-type='${COL_TYPES.FLOAT5}'],
+			th[data-type='${COL_TYPES.PERCENT}'], td[data-type='${COL_TYPES.PERCENT}'],
+			th[data-type='${COL_TYPES.PERCENT1}'], td[data-type='${COL_TYPES.PERCENT1}'],
 			th[data-type='integer'], td[data-type='integer'],
 			th[data-type='number'], td[data-type='number'],
-			th[data-type='money'], td[data-type='money'],
-			th[data-type='money_2'], td[data-type='money_2']
+			th[data-type='${COL_TYPES.MONEY}'], td[data-type='${COL_TYPES.MONEY}'],
+			th[data-type='${COL_TYPES.MONEY2}'], td[data-type='${COL_TYPES.MONEY2}']
 			{ text-align:right; }
 			td[data-type='text'] { text-align: left; }
 			td[data-type='date'] { text-align: center; }
@@ -379,7 +388,7 @@ This creates a private lexical scope so that all constants, helper functions, an
 					cursor: pointer;
 					padding: 0;
 					margin-right: 4px;
-					font-size: inherit;  /* inherit font size from surrounding cell */
+					font-size: 0.7rem;  /* inherit font size from surrounding cell */
 					line-height: 1;      /* keep the arrow vertically centred */
 				}
 
@@ -567,6 +576,89 @@ This creates a private lexical scope so that all constants, helper functions, an
 			return table;
 		}
 
+		#transposeTable() {
+			// Prepare data (clone + display values)
+			const prepared = TableMaker.createCellDisplayValues({
+				rows: JSON.parse(JSON.stringify(this.#tableData.rows)),
+				cols: this.#filterVisibleColumns(this.#tableData.cols)
+			});
+
+			// Header
+			//const thead = this.#buildHeader(prepared.cols);
+
+			// ---- columns to show -------------------------------------------------
+			let columnsToShow = {};
+			Object.entries(this.#tableData.cols).forEach(([col, info]) => {
+				const show = info.show ?? true;
+				if (show) columnsToShow[col] = info;
+			});
+
+			// ---- clone data -------------------------------------------------------
+			//let data = { rows: JSON.parse(JSON.stringify(this.#tableData.rows)), cols: columnsToShow };
+			//let data = prepared; //TableMaker.createCellDisplayValues(prepared);
+
+			const colClasses = this.#style.col_classes ?? {};
+			const showCols = Object.keys(prepared.cols);
+			const colTitlesFrom = this.#style.heading_col ?? showCols[0];
+
+			// ---- top‑left header cell --------------------------------------------
+			const th0 = document.createElement('th');
+			th0.setAttribute('data-type', COL_TYPES.TEXT);
+			th0.textContent = prepared.cols[colTitlesFrom].disp ?? colTitlesFrom;
+
+			const trHead = document.createElement('tr');
+			const headCls = colClasses[colTitlesFrom] ?? [];
+			trHead.setAttribute('class', headCls.join(' '));
+			trHead.append(th0);
+
+			// ---- remaining header cells (column titles) ---------------------------
+			const theadThArr = prepared.rows.map(row => {
+				const th = document.createElement('th');
+				th.setAttribute('data-type', row[colTitlesFrom].type);
+				th.textContent = row[colTitlesFrom].disp;
+				return th;
+			});
+			trHead.append(...theadThArr);
+			const thead = document.createElement('thead');
+			thead.appendChild(trHead);
+
+			// ---- body – each original column becomes a row -----------------------
+			const bodyCols = Object.fromEntries(
+				Object.entries(prepared.cols).filter(([c]) => c !== colTitlesFrom)
+			);
+			const tbodyTrArr = Object.entries(bodyCols).map(([col, colInfo]) => {
+				const th = document.createElement('th');
+				th.setAttribute('data-type', COL_TYPES.TEXT);
+				th.textContent = colInfo.disp ?? col;
+
+				const tdArr = prepared.rows.map(row => {
+					const td = document.createElement('td');
+					td.setAttribute('data-type', row[col].type);
+					td.textContent = row[col].disp;
+					return td;
+				});
+
+				const trCls = colClasses[col] ?? [];
+				const tr = document.createElement('tr');
+				tr.setAttribute('class', trCls.join(' '));
+				tr.append(th, ...tdArr);
+				return tr;
+			});
+
+			// ---- ASSEMBLE THE TABLE
+			const table = document.createElement('table');
+			table.style = this.#style.table_style ?? '';
+
+			if (this.#tableData.caption)
+				table.append(this.#caption());
+
+			const tbody = document.createElement('tbody');
+			tbody.append(...tbodyTrArr);
+
+			table.append(thead, tbody);
+			return table;
+		}
+
 		// Filter out hidden/group‑by columns
 		#filterVisibleColumns(allCols) {
 			// If a group_by array is supplied, those columns are hidden from the main grid.
@@ -576,52 +668,11 @@ This creates a private lexical scope so that all constants, helper functions, an
 
 			const visible = {};
 			for (const [col, info] of Object.entries(allCols)) {
-				if (!groupCols.includes(col)) visible[col] = info;
+				const show = info.show ?? true;
+				if (!groupCols.includes(col) && show) visible[col] = info;
 			}
+
 			return visible;
-		}
-
-		//--------------------------------------------------------------
-		// TABLE HEAD – respects column order, display names, sortable
-		//--------------------------------------------------------------
-		#tableHead(headerCols) {
-			const thArr = Object.entries(headerCols).map(([col, colInfo]) => {
-				const th = document.createElement('th');
-
-				// Preserve the column type as a CSS class (for right‑align etc.)
-				th.setAttribute('data-type', colInfo.type ?? COL_TYPES.TEXT);
-				th.dataset.key = col;    // <-- column identifier
-				th.textContent = colInfo.disp ?? (colInfo.displayName ?? col);
-
-				// Mark the currently sorted column (if any)
-				if (this.#sortedColumn.colName === col) {
-					th.classList.add('sorted');
-					const icon = document.createElement('span');
-					icon.className = 'sort-icon';
-					icon.textContent = (this.#sortedColumn.sortAsc ?? true) ? '▲' : '▼';
-					th.appendChild(icon);
-				} else {
-					// Empty placeholder so all headers keep the same width
-					const placeholder = document.createElement('span');
-					placeholder.className = 'sort-icon';
-					th.appendChild(placeholder);
-				}
-				return th;
-			});
-
-			if (this.#style.expandableRows) {
-				thArr.unshift(document.createElement('th'));
-			}
-			const thead = document.createElement('thead');
-			const trHead = document.createElement('tr');
-			trHead.classList.add('header');
-			trHead.append(...thArr);
-
-			if (this.#style.row_buttons.length > 0)
-				trHead.append(document.createElement('th'));
-
-			thead.appendChild(trHead);
-			return thead;
 		}
 
 		//--------------------------------------------------------------
@@ -638,6 +689,13 @@ This creates a private lexical scope so that all constants, helper functions, an
 				// Sorting UI (arrow placeholder)
 				const placeholder = document.createElement('span');
 				placeholder.className = 'sort-icon';
+
+				// Mark the currently sorted column (if any)
+				if (this.#sortedColumn.colName === col) {
+					th.classList.add('sorted');
+					placeholder.textContent = (this.#sortedColumn.sortAsc ?? true) ? '↑' : '↓';
+				}
+
 				th.appendChild(placeholder);
 				return th;
 			});
@@ -878,80 +936,6 @@ This creates a private lexical scope so that all constants, helper functions, an
 			});
 		}
 
-		#transposeTable() {
-			// ---- columns to show -------------------------------------------------
-			let columnsToShow = {};
-			Object.entries(this.#tableData.cols).forEach(([col, info]) => {
-				const show = info.show ?? true;
-				if (show) columnsToShow[col] = info;
-			});
-
-			// ---- clone data -------------------------------------------------------
-			let data = { rows: JSON.parse(JSON.stringify(this.#tableData.rows)), cols: columnsToShow };
-			data = TableMaker.createCellDisplayValues(data);
-
-			const colClasses = this.#style.col_classes ?? {};
-			const showCols = Object.keys(data.cols);
-			const colTitlesFrom = this.#style.heading_col ?? showCols[0];
-
-			// ---- top‑left header cell --------------------------------------------
-			const th0 = document.createElement('th');
-			th0.setAttribute('data-type', COL_TYPES.TEXT);
-			th0.textContent = data.cols[colTitlesFrom].disp ?? colTitlesFrom;
-
-			const trHead = document.createElement('tr');
-			const headCls = colClasses[colTitlesFrom] ?? [];
-			trHead.setAttribute('class', headCls.join(' '));
-			trHead.append(th0);
-
-			// ---- remaining header cells (column titles) ---------------------------
-			const theadThArr = data.rows.map(row => {
-				const th = document.createElement('th');
-				th.setAttribute('data-type', row[colTitlesFrom].type);
-				th.textContent = row[colTitlesFrom].disp;
-				return th;
-			});
-			trHead.append(...theadThArr);
-			const thead = document.createElement('thead');
-			thead.appendChild(trHead);
-
-			// ---- body – each original column becomes a row -----------------------
-			const bodyCols = Object.fromEntries(
-				Object.entries(data.cols).filter(([c]) => c !== colTitlesFrom)
-			);
-			const tbodyTrArr = Object.entries(bodyCols).map(([col, colInfo]) => {
-				const th = document.createElement('th');
-				th.setAttribute('data-type', COL_TYPES.TEXT);
-				th.textContent = colInfo.disp ?? col;
-
-				const tdArr = data.rows.map(row => {
-					const td = document.createElement('td');
-					td.setAttribute('data-type', row[col].type);
-					td.textContent = row[col].disp;
-					return td;
-				});
-
-				const trCls = colClasses[col] ?? [];
-				const tr = document.createElement('tr');
-				tr.setAttribute('class', trCls.join(' '));
-				tr.append(th, ...tdArr);
-				return tr;
-			});
-
-			// ---- ASSEMBLE THE TABLE
-			const table = document.createElement('table');
-			table.setAttribute('style', this.#style.table_style ?? '');
-
-			if (this.#tableData.caption)
-				table.append(this.#caption());
-
-			const tbody = document.createElement('tbody');
-			tbody.append(...tbodyTrArr);
-
-			table.append(thead, tbody);
-			return table;
-		}
-
 		#caption() {
 			// assumes that #tableData.caption exists
 			const caption = document.createElement('caption');
@@ -977,7 +961,7 @@ This creates a private lexical scope so that all constants, helper functions, an
 				// Currently we only support 'sum'. Extend here for avg/min/max etc.
 				switch (colInfo.aggregate) {
 					case 'sum':
-						if (colType === 'money_2') {
+						if (colType === COL_TYPES.MONEY2) {
 							// element‑wise sum of inner arrays
 							aggVal = rows.reduce((acc, arr) => {
 								arr[col].value.forEach((num, i) => {
@@ -1013,7 +997,11 @@ This creates a private lexical scope so that all constants, helper functions, an
 					case COL_TYPES.FLOAT:
 						aggDisp = Formatter.formatNumber(aggVal, precision);
 						break;
+					case COL_TYPES.FLOAT5:
+						aggDisp = Formatter.formatNumber(aggVal/1e5, precision);
+						break;
 					case COL_TYPES.PERCENT:
+					case COL_TYPES.PERCENT1:
 						aggDisp = Formatter.formatPercent(aggVal, precision);
 						break;
 					default:
@@ -1040,11 +1028,11 @@ This creates a private lexical scope so that all constants, helper functions, an
 			return btn;
 		}
 
-		/*--------------------------------------------------------------
-		PRIVATE: Sort the table by a column.
-		columnKey – the key from the column definition
-		asc       – boolean, true for ascending, false for descending
-	-------------------------------------------------------------- */
+		// --------------------------------------------------------------
+		// PRIVATE: Sort the table by a column.
+		// columnKey – the key from the column definition
+		// asc       – boolean, true for ascending, false for descending
+		// --------------------------------------------------------------
 		#sortBy(columnKey, asc = true) {
 			// Guard – nothing to sort
 			if (!this.#tableData?.rows) return;
@@ -1052,13 +1040,11 @@ This creates a private lexical scope so that all constants, helper functions, an
 			const colDef = this.#tableData.cols?.[columnKey] ?? {};
 			const type   = (colDef.type ?? '').toString().toLowerCase();
 
-			/**
-		* Normalise a raw cell value so that the comparator can work with a
-		* homogeneous type (number, string, or date‑timestamp).
-		*/
+			// Normalise a raw cell value so that the comparator can work with a
+			// homogeneous type (number, string, or date‑timestamp).
 			const normalize = (v) => {
-				// ---- money_2 (array) – compare ONLY the first entry ----------
-				if (type === 'money_2' && Array.isArray(v)) {
+				// ---- COL_TYPES.MONEY2 (array) – compare ONLY the first entry ----------
+				if (type === COL_TYPES.MONEY2 && Array.isArray(v)) {
 					const first = v.length ? Number(v[0]) : 0;
 					return Number.isFinite(first) ? first : 0;
 				}
@@ -1079,10 +1065,8 @@ This creates a private lexical scope so that all constants, helper functions, an
 				return (v == null ? '' : String(v));
 			};
 
-			/**
-		* Comparator used by Array.prototype.sort().
-		* Returns -1, 0, or 1 depending on the ordering of a and b.
-		*/
+			// Comparator used by Array.prototype.sort().
+			// Returns -1, 0, or 1 depending on the ordering of a and b.
 			const comparator = (a, b) => {
 				const na = normalize(a[columnKey]);
 				const nb = normalize(b[columnKey]);
@@ -1131,8 +1115,8 @@ This creates a private lexical scope so that all constants, helper functions, an
 				const tr = this.#buildDataRow(rowObj, colsToShow);
 				if (withToggle) {
 					// extra td to align with td in header, which has toggle button
-					const placeholder = document.createElement('td');
-					tr.prepend(placeholder);
+					//const placeholder = document.createElement('td');
+					//tr.prepend(placeholder);
 				}
 				trArr.push(tr);
 
@@ -1190,7 +1174,11 @@ This creates a private lexical scope so that all constants, helper functions, an
 					toggleBtn.addEventListener('click', this.#makeToggleHandler(toggleBtn));
 					const toggleTd = document.createElement('td');
 					toggleTd.append(toggleBtn);
-					aggTr.prepend(toggleTd);
+					//aggTr.prepend(toggleTd);
+					// Query‑selector shortcut – picks the first matching cell
+					const firstCell = aggTr.querySelector('td, th') ?? null;
+					if (firstCell) 
+						firstCell.prepend(toggleBtn);
 				}
 
 				tbodyMembers.append(...trArr);
@@ -1211,9 +1199,13 @@ This creates a private lexical scope so that all constants, helper functions, an
 					const toggleBtn = TableMakerComponent._makeToggleCell(false);
 					toggleBtn.classList.add('group-toggle');   // optional hook for CSS
 					toggleBtn.addEventListener('click', this.#makeToggleHandler(toggleBtn));
-					const toggleTd = document.createElement('td');
-					toggleTd.append(toggleBtn);
-					headerTr.prepend(toggleTd);
+					//const toggleTd = document.createElement('td');
+					//toggleTd.append(toggleBtn);
+					//headerTr.prepend(toggleTd);
+					// Query‑selector shortcut – picks the first matching cell
+					const firstCell = headerTr.querySelector('td, th') ?? null;
+					if (firstCell) 
+						firstCell.prepend(toggleBtn);
 				}
 
 				tbodyMembers.append(...trArr, aggTr);
@@ -1263,73 +1255,4 @@ This creates a private lexical scope so that all constants, helper functions, an
 	}
 
 	customElements.define('table-maker', TableMakerComponent);
-
-	/*
-Quick‑start usage for <table-maker>
-
-<!-- Include the script that defines the component first -->
-<script src='table-maker.js' defer></script>
-
-1. As a plain HTML tag (declarative)
-
-<!-- Then use the custom element directly in markup -->
-<table-maker
-  data='{
-  "caption": "caption text", // OPTIONAL
-    "cols": {				//REQUIRED
-      "price": {"type":"money","precision":2},
-    "qty":   {"type":"int"}
-    },
-    "rows": [				//REQUIRED
-      {"price":1999,"qty":3},
-      {"price": 499,"qty":7}
-    ]
-  }'
-  style-config='{
-    "table_style": "width:100%;border:1px solid #ddd;" // OPTIONAL
-  }'
-  transpose>
-</table-maker>
-
-    data – JSON (or a JS object) describing columns & rows.
-    style-config – optional JSON for table styling, caption, etc.
-    transpose – presence flips rows ↔ columns.
-
-2. Dynamically with document.createElement
-
-// Create the element
-const tbl = document.createElement('table-maker');
-
-// Prepare data & style objects (you can also use JSON strings)
-const df = {
-	cols: {
-		price: { type: 'money', precision: 2 },
-		qty:   { type: 'int' }
-	  },
-	  rows: [
-		{ price: 1999, qty: 3 },
-	  { price:  499, qty: 7 }
-	  ]
-style: {
-		group_by: [['FY', 'desc'], ['Term', 'asc']], // keys to group by and how to order the keys
-		aggregateCols: {Code: 'Total', Cost: 'sum', Redeemed: 'sum', CG: 'sum', TaxOnCG: 'sum', TaxOnLTCG: 'sum', TaxOnSTCG: 'sum', Tax: 'sum'},
-		groupLabel: {includeKeys: true, separator: ' | '},
-		sort_by: ['Sl'] // how to sort within each group
-	}
-};
-
-const style = {
-  table_style: 'width:10%;border:1px solid #ddd;',
-  caption: 'Sales Summary'
-};
-
-// Assign properties (they trigger a re‑render)
-tbl.data = df;            // or tbl.setAttribute('data', JSON.stringify(df));
-tbl.styleConfig = style;  // or tbl.setAttribute('style-config', JSON.stringify(style));
-tbl.transpose = true;     // or tbl.setAttribute('transpose', '');
-
-document.body.appendChild(tbl);
-
-Both approaches end up with the same rendered table; choose the declarative HTML style for static pages or the programmatic createElement route when you need to build the component dynamically (e.g., in response to user actions or fetched data).
-*/
 })();
