@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JSON Viewer — Upload • Validate • Expand/Collapse</title>
+  <style>
+    :root{
+      --bg:#0f172a; --panel:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#22d3ee; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
+      --key:#60a5fa; --string:#a7f3d0; --number:#fca5a5; --boolean:#fde68a; --null:#c4b5fd; --object:#67e8f9; --array:#f0abfc;
+      --btn-bg:#1f2937; --btn-hover:#273449;
+    }
+    [data-theme="light"]{
+      --bg:#f9fafb; --panel:#ffffff; --muted:#6b7280; --text:#111827; --accent:#0ea5e9; --ok:#16a34a; --warn:#d97706; --err:#dc2626;
+      --key:#2563eb; --string:#065f46; --number:#b91c1c; --boolean:#92400e; --null:#6d28d9; --object:#0e7490; --array:#a21caf;
+      --btn-bg:#e5e7eb; --btn-hover:#d1d5db;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Noto Sans','Helvetica Neue',Arial,sans-serif;transition:background .3s,color .3s}
+    .container{max-width:1100px;margin:24px auto;padding:0 16px}
+    .card{background:var(--panel);border:1px solid #1f2937;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,.35);transition:background .3s}
+    .header{padding:18px 20px;border-bottom:1px solid #1f2937;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+    .title{font-weight:700;font-size:18px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{appearance:none;border:none;background:var(--btn-bg);color:var(--text);padding:8px 12px;border-radius:12px;cursor:pointer;transition:background .2s}
+    .btn:hover{background:var(--btn-hover)}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .file{display:inline-block}
+    input[type=file]{display:none}
+    .file label{display:inline-block;padding:9px 14px;border:1px dashed #334155;border-radius:12px;cursor:pointer;color:var(--muted);transition:all .2s}
+    .file label:hover{border-color:var(--accent);color:var(--text)}
+    [data-theme="light"] .file label{border-color:#d1d5db;color:var(--muted)}
+    [data-theme="light"] .file label:hover{border-color:var(--accent);color:var(--text)}
+    .drag{margin:14px;border:1px dashed #334155;border-radius:14px;padding:14px;text-align:center;color:var(--muted)}
+    .drag.dragover{border-color:var(--accent);color:var(--text);background:#0b1226}
+    [data-theme="light"] .drag.dragover{background:#f3f4f6}
+    .status{padding:12px 16px;border-bottom:1px solid #1f2937;font-family:ui-monospace,monospace}
+    .status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.err{color:var(--err)}
+    .errors{padding:12px 16px;border-bottom:1px solid #1f2937}
+    .errors .errline{color:var(--err);font-family:ui-monospace,monospace;white-space:pre-wrap}
+    .viewer{padding:12px 16px}
+    .code{font-family:ui-monospace,monospace;font-size:13px}
+    .node{position:relative;padding-left:18px;margin-left:4px}
+    .toggle{position:absolute;left:0;top:2px;cursor:pointer;user-select:none}
+    .toggle::before{content:'▸';display:inline-block;transform:rotate(0deg);transition:transform .15s ease}
+    .expanded>.toggle::before{transform:rotate(90deg)}
+    .pair{display:flex;gap:8px;align-items:flex-start}
+    .key{color:var(--key)}
+    .sep{color:#475569}
+    .type-string{color:var(--string)} .type-number{color:var(--number)} .type-boolean{color:var(--boolean)} .type-null{color:var(--null)}
+    .type-object>.summary{color:var(--object)} .type-array>.summary{color:var(--array)}
+    .children{margin-left:14px;border-left:1px dashed #334155;padding-left:10px}
+    .summary{cursor:pointer}
+    .muted{color:var(--muted)}
+    .kbadge{font-size:11px;padding:1px 6px;border:1px solid #334155;border-radius:999px;color:var(--muted)}
+    .footer{padding:14px 16px;border-top:1px solid #1f2937;color:var(--muted);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+    .search{display:flex;gap:8px}
+    .search input{flex:1;min-width:220px;background:#0b1226;border:1px solid #233048;border-radius:10px;color:var(--text);padding:8px 10px}
+    [data-theme="light"] .search input{background:#ffffff;border:1px solid #d1d5db;color:#111827}
+    .hit{background:rgba(34,211,238,.15)}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="header">
+        <div class="title">JSON Viewer</div>
+        <div class="controls">
+          <div class="file">
+            <input id="file" type="file" accept=".json,application/json,text/*" />
+            <label for="file">Choose JSON file…</label>
+          </div>
+          <button class="btn" id="expandAll" disabled>Expand all</button>
+          <button class="btn" id="collapseAll" disabled>Collapse all</button>
+          <button class="btn" id="copyRaw" disabled>Copy raw</button>
+          <button class="btn" id="downloadPretty" disabled>Download pretty</button>
+          <button class="btn" id="themeToggle">Toggle theme</button>
+        </div>
+      </div>
+      <div class="drag" id="drop">Drag & drop a JSON file here, or use “Choose JSON file…” above.</div>
+      <div id="status" class="status warn">No file loaded.</div>
+      <div id="errors" class="errors" hidden></div>
+      <div class="viewer code" id="viewer" aria-live="polite"></div>
+      <div class="footer">
+        <div class="search">
+          <input id="search" type="search" placeholder="Search keys or values… (press Enter)" />
+          <button class="btn" id="clearSearch">Clear</button>
+        </div>
+        <div class="muted">Hover a value to see its path</div>
+      </div>
+    </div>
+  </div>
+  <script>
+	  (function() {
+		  const fileInput = document.getElementById('file'),
+				drop = document.getElementById('drop'),
+				statusEl = document.getElementById('status'),
+				errorsEl = document.getElementById('errors'),
+				viewer = document.getElementById('viewer'),
+				expandAllBtn = document.getElementById('expandAll'),
+				collapseAllBtn = document.getElementById('collapseAll'),
+				copyRawBtn = document.getElementById('copyRaw'),
+				downloadPrettyBtn = document.getElementById('downloadPretty'),
+				searchInput = document.getElementById('search'),
+				clearSearchBtn = document.getElementById('clearSearch'),
+				themeToggle = document.getElementById('themeToggle');
+
+		  let rawText = '', jsonData = null, currentTheme = 'light';
+		  document.documentElement.dataset.theme = 'light';
+
+		  function setStatus(m, c) {
+			  statusEl.textContent = m;
+			  statusEl.className = 'status ' + (c || '');
+		  }
+
+		  function showErrors(lines) {
+			  if(!lines.length) {
+				  errorsEl.hidden=true;errorsEl.innerHTML='';
+				  return;
+			  }
+			  errorsEl.hidden = false;
+			  errorsEl.innerHTML = lines.map(t=>`<div class="errline">❌ ${escapeHtml(t)}</div>`).join('')
+		  }
+
+		  function escapeHtml(s) {
+			  return s.replace(/[&<>"']/g, c => (
+				  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]
+			  ));
+		  }
+
+		  function readFile(f) {
+			  const r = new FileReader();
+			  r.onload = () => {
+				  rawText = r.result;
+				  try{
+					  jsonData = JSON.parse(rawText);
+					  setStatus(`Loaded: ${f.name} — ${formatBytes(f.size)} — valid JSON`,'ok');
+					  showErrors([]);
+					  render(jsonData);
+					  expandAllBtn.disabled = collapseAllBtn.disabled = copyRawBtn.disabled = downloadPrettyBtn.disabled = false;
+				  } catch(err) {
+					  jsonData = null;
+					  render(null);
+					  setStatus('Parse error — invalid JSON','err');
+					  showErrors([err.message]);
+				  }
+			  };
+			  r.onerror = () => {
+				  setStatus('Failed to read file','err');
+				  showErrors([String(r.error||'Unknown error')]);
+			  };
+			  r.readAsText(f);
+		  }
+
+		  fileInput.addEventListener('change', e => {
+			  const f = e.target.files && e.target.files[0];
+			  if(f) readFile(f)
+		  });
+
+		  ;['dragenter', 'dragover'].forEach(evt => drop.addEventListener(evt, e => {
+			  e.preventDefault();
+			  drop.classList.add('dragover');
+		  }));
+
+		  ;['dragleave', 'drop'].forEach(evt => drop.addEventListener(evt, e => {
+			  e.preventDefault();
+			  drop.classList.remove('dragover');
+		  }));
+
+		  drop.addEventListener('drop',e => {
+			  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+			  if(f) readFile(f);
+		  });
+
+		  function typeOf(v) {
+			  if(v === null) return'null';
+			  if(Array.isArray(v)) return'array';
+			  return typeof v;
+		  }
+
+		  function render(data) {
+			  viewer.innerHTML = '';
+			  if(data == null) {
+				  viewer.innerHTML = '<div class="muted">Load a JSON file to view it here.</div>';
+				  return;
+			  }
+			  viewer.appendChild(buildNode('', data, ''));
+		  }
+
+		  function buildNode(key, value, path){
+			  const t = typeOf(value),
+					node = document.createElement('div');
+			  node.className =`node type-${t}`;
+
+			  const pair = document.createElement('div');
+			  pair.className = 'pair';
+
+			  if(t === 'object' || t === 'array') {
+				  const toggle = document.createElement('span');
+				  toggle.className = 'toggle';
+				  pair.appendChild(toggle);
+				  node.classList.add('expanded');
+				  toggle.onclick = () => toggleNode(node);
+			  } else {
+				  const spacer = document.createElement('span');
+				  spacer.style.display = 'inline-block';
+				  spacer.style.width = '14px';
+				  pair.appendChild(spacer);
+			  }
+
+			  if(key !== '') {
+				  const keyEl = document.createElement('span');
+				  keyEl.className = 'key';
+				  keyEl.textContent = JSON.stringify(String(key));
+				  pair.appendChild(keyEl);
+				  const sep = document.createElement('span');
+				  sep.className = 'sep';
+				  sep.textContent = ':';
+				  pair.appendChild(sep);
+			  }
+
+			  const summary = document.createElement('span');
+			  summary.className='summary';
+			  if(t === 'string'){
+				  summary.classList.add('type-string');
+				  summary.textContent = JSON.stringify(value);
+			  }
+			  else if(t === 'number'){
+				  summary.classList.add('type-number');
+				  summary.textContent = String(value);
+			  }
+			  else if(t === 'boolean'){
+				  summary.classList.add('type-boolean');
+				  summary.textContent = String(value);
+			  }
+			  else if(t === 'null'){
+				  summary.classList.add('type-null');
+				  summary.textContent = 'null';
+			  }
+			  else if(t === 'array'){
+				  summary.textContent = `Array(${value.length})`;
+				  summary.title = 'Click to expand/collapse';
+			  }
+			  else if(t === 'object'){
+				  summary.textContent = `Object{${Object.keys(value).length}}`;
+				  summary.title = 'Click to expand/collapse';
+			  }
+			  pair.appendChild(summary);
+			  node.appendChild(pair);
+
+			  if(t === 'object' || t === 'array') {
+				  const children = document.createElement('div');
+				  children.className = 'children';
+				  const entries = t === 'object' ? Object.entries(value) : value.map((v, i) => [i, v]);
+				  for(const[k, v]of entries) {
+					  children.appendChild(buildNode(k,v,path+(key!==''?`/${key}`:'')));
+				  }
+				  node.appendChild(children);
+				  summary.onclick = () => toggleNode(node);
+				  const badge = document.createElement('span');
+				  badge.className = 'kbadge';
+				  badge.textContent = t === 'object' ? `${Object.keys(value).length} keys` : `${value.length} items`;
+				  pair.appendChild(badge);
+			  }
+			  pair.title = path + (key !== '' ? `/${key}` : '');
+			  return node;
+		  }
+
+		  function toggleNode(node) {
+			  const c = node.querySelector(':scope>.children');
+			  if(!c) return;
+			  if(node.classList.contains('expanded')) {
+				  node.classList.remove('expanded');
+				  c.style.display = 'none';
+			  } else {
+				  node.classList.add('expanded');
+				  c.style.display = '';
+			  }
+		  }
+
+		  function expandCollapseAll(expand) {
+			  viewer.querySelectorAll('.node.type-object,.node.type-array').forEach(n => {
+				  const c = n.querySelector(':scope>.children');
+				  if(!c) return;
+				  if(expand) {
+					  n.classList.add('expanded');
+					  c.style.display = ''
+				  } else {
+					  n.classList.remove('expanded');
+					  c.style.display = 'none'
+				  }
+			  });
+		  }
+
+		  expandAllBtn.onclick = () => expandCollapseAll(true);
+
+		  collapseAllBtn.onclick = () => expandCollapseAll(false);
+
+		  copyRawBtn.onclick = async() => {
+			  try{
+				  await navigator.clipboard.writeText(rawText||'');
+				  setStatus('Raw JSON copied','ok');
+			  } catch {
+				  setStatus('Clipboard failed','err');
+			  }
+		  };
+
+		  downloadPrettyBtn.onclick = () => {
+			  const blob = new Blob([JSON.stringify(jsonData, null, 2)], {type: 'application/json'});
+			  const a = document.createElement('a');
+			  a.href = URL.createObjectURL(blob);
+			  a.download = 'data.pretty.json';
+			  a.click();
+			  URL.revokeObjectURL(a.href);
+		  };
+
+		  function clearHits() {
+			  viewer.querySelectorAll('.hit').forEach(el=>el.classList.remove('hit'));
+		  }
+		  function search(q) {
+			  clearHits();
+			  if(!q) return;
+			  const re = new RegExp(q.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&'),'i');
+			  viewer.querySelectorAll('.pair').forEach(p => {
+				  if(re.test(p.textContent))
+					  p.classList.add('hit');
+			  });
+		  }
+
+		  searchInput.onkeydown = e => {
+			  if(e.key === 'Enter')
+				  search(e.target.value.trim());
+		  };
+
+		  clearSearchBtn.onclick= () => {
+			  searchInput.value = '';
+			  clearHits();
+			  searchInput.focus();
+		  };
+
+		  function formatBytes(b) {
+			  if(b === 0) return'0 B';
+
+			  const k = 1024, u = ['B','KB','MB','GB','TB'], i = Math.floor(Math.log(b) / Math.log(k));
+			  return(b / Math.pow(k, i)).toFixed(2) + ' ' + u[i];
+		  }
+
+		  themeToggle.onclick = () => {
+			  if(currentTheme === 'dark') {
+				  document.documentElement.dataset.theme = 'light';
+				  currentTheme = 'light'
+			  } else {
+				  document.documentElement.dataset.theme = '';
+				  currentTheme = 'dark'
+			  }
+		  }
+	  })();
+  </script>
+</body>
+</html>
