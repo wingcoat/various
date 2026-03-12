@@ -207,13 +207,13 @@
 					ExcelHandler.#currentSheet = Object.keys(ExcelHandler.#workbook.Sheets)[0]; // Select first sheet
 
 					// Populate sheet selector (UI)
-					ExcelHandler.#sheetSelect.innerHTML = '';
-					Object.keys(ExcelHandler.#workbook.Sheets).forEach(name => {
+					const options = Object.keys(ExcelHandler.#workbook.Sheets).map(name => {
 						const opt = document.createElement('option');
 						opt.value = name;
 						opt.textContent = name;
-						ExcelHandler.#sheetSelect.appendChild(opt);
+						return opt;
 					});
+					ExcelHandler.#sheetSelect.replaceChildren(...options);
 					ExcelHandler.#sheetSelect.value = ExcelHandler.#currentSheet;
 
 					ExcelHandler.updateConfig(ExcelHandler.#currentSheet);
@@ -254,7 +254,8 @@
 					r.readAsArrayBuffer(f);
 				}
 
-				static processExcelData(sheetName=ExcelHandler.#currentSheet) {
+				static processExcelData() {
+					const sheetName = ExcelHandler.#currentSheet;
 					const ws = ExcelHandler.#workbook.Sheets[sheetName];
 
 					jsonData = {};
@@ -283,11 +284,13 @@
 					ExcelHandler.#maxColsInput.value = cfg.maxCols;
 				}
 
-				static #saveConfig(sheetName) {
-					ExcelHandler.#sheetConfigs[sheetName] = {
+				static #saveConfig() {
+					ExcelHandler.#currentSheet = ExcelHandler.#sheetSelect.value;
+
+					ExcelHandler.#sheetConfigs[ExcelHandler.#currentSheet] = {
 						headerRow: parseInt(ExcelHandler.#headerRowInput.value, 10) || 1,
-						maxRows: ExcelHandler.maxRowsInput.value ? parseInt(ExcelHandler.maxRowsInput.value, 10) : '',
-						maxCols: ExcelHandler.maxColsInput.value ? parseInt(ExcelHandler.maxColsInput.value, 10) : ''
+						maxRows: ExcelHandler.#maxRowsInput.value ? parseInt(ExcelHandler.#maxRowsInput.value, 10) : '',
+						maxCols: ExcelHandler.#maxColsInput.value ? parseInt(ExcelHandler.#maxColsInput.value, 10) : ''
 					};
 				}
 
@@ -297,7 +300,7 @@
 						return;
 					}
 
-					ExcelHandler.#saveConfig(ExcelHandler.#currentSheet);
+					ExcelHandler.#saveConfig();
 
 					try {
 						ExcelHandler.processExcelData();
@@ -307,7 +310,7 @@
 					}
 				};
 
-				static #getJsonOpts(sheetName, range) {
+				static #getJsonOpts(sheetName, range) { // range is the sheet's used range
 					const cfg = ExcelHandler.#sheetConfigs[sheetName] || { headerRow: 1, maxRows: '', maxCols: '' };
 					const headerRowVal = cfg.headerRow;
 					const maxRowsVal = cfg.maxRows ? parseInt(cfg.maxRows, 10) : null;
@@ -317,35 +320,33 @@
 					const jsonOpts = {
 						defval: null,
 						raw: false,
-						header: headerRowVal - 1
+						header: headerRowVal - 1,
+						range: range
 					};
 
 					// Construct range string if limits are set (e.g., "A1:D100")
 					// We need to calculate the range based on max rows/cols relative to the header
 					if (maxRowsVal || maxColsVal) {
-						// Decode the sheet's used range
-						const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
-
 						// Calculate the absolute end row (0-based)
 						// Formula: (Header Row Index) + (Max Rows - 1)
 						// Clamp it so we don't exceed the actual sheet size
-						const targetEndRow = (headerRowVal - 1) + (maxRowsVal ? maxRowsVal - 1 : 0);
+						const targetEndRow = (headerRowVal - 1) + (maxRowsVal ? maxRowsVal - 1 : range.e.r);
 						const absEndRow = Math.min(range.e.r, targetEndRow);
 
 						// Calculate the absolute end column (0-based)
 						// Formula: (Max Cols - 1)
 						// Clamp it so we don't exceed the actual sheet size
-						const targetEndCol = maxColsVal ? maxColsVal - 1 : 0;
+						const targetEndCol = maxColsVal ? maxColsVal - 1 : range.e.c;
 						const absEndCol = Math.min(range.e.c, targetEndCol);
 
 						// Encode the range string (Start is always A1 -> 0,0)
-						const rangeStr = XLSX.utils.encode_range({ 
+						jsonOpts.range = XLSX.utils.encode_range({ 
 							s: { r: 0, c: 0 }, 
 							e: { r: absEndRow, c: absEndCol } 
 						});
-
-						jsonOpts.range = rangeStr;
 					}
+
+					return jsonOpts;
 				}
 			}
 
