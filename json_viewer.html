@@ -76,6 +76,33 @@
 			</div>
 			<div class="drag" id="drop">Drag & drop a JSON or Excel file here, or use “Choose file (JSON or Excel)…” above.</div>
 			<div id="status" class="status warn">No file loaded.</div>
+
+			<!-- Excel Configuration Panel (Hidden by default) -->
+			<div id="excelConfig" class="card" style="margin: 14px; padding: 16px; display: none; border: 1px solid var(--btn-bg);">
+				<div style="font-weight: 600; margin-bottom: 10px;">Excel Options</div>
+				<div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px;">
+					<div>
+						<label for="sheetSelect" style="font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px;">Sheet</label>
+						<select id="sheetSelect" style="padding: 6px; background: var(--bg); border: 1px solid #334155; color: var(--text); border-radius: 6px;"></select>
+					</div>
+				</div>
+				<div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+					<div>
+						<label for="headerRow" style="font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px;">Header Row (1-based)</label>
+						<input type="number" id="headerRow" min="1" value="1" style="width: 80px; padding: 6px; background: var(--bg); border: 1px solid #334155; color: var(--text); border-radius: 6px;">
+					</div>
+					<div>
+						<label for="maxRows" style="font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px;">Max Rows (Optional)</label>
+						<input type="number" id="maxRows" min="1" placeholder="All" style="width: 100px; padding: 6px; background: var(--bg); border: 1px solid #334155; color: var(--text); border-radius: 6px;">
+					</div>
+					<div>
+						<label for="maxCols" style="font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px;">Max Cols (Optional)</label>
+						<input type="number" id="maxCols" min="1" placeholder="All" style="width: 100px; padding: 6px; background: var(--bg); border: 1px solid #334155; color: var(--text); border-radius: 6px;">
+					</div>
+					<button id="applyExcelConfig" class="btn" style="height: 38px; align-self: flex-end;">Apply & Refresh</button>
+				</div>
+			</div>
+
 			<div id="errors" class="errors" hidden></div>
 			<div class="viewer code" id="viewer" aria-live="polite"></div>
 			<div class="footer">
@@ -103,6 +130,8 @@
 				  searchInput = document.getElementById('search'),
 				  clearSearchBtn = document.getElementById('clearSearch'),
 				  themeToggle = document.getElementById('themeToggle');
+
+			const excelConfigPanel = document.getElementById('excelConfig');
 
 			let rawText = '', jsonData = null, currentTheme = 'light';
 			document.documentElement.dataset.theme = 'light';
@@ -151,61 +180,185 @@
 				r.readAsText(f);
 			}
 
-			fileInput.addEventListener('change', e => {
-				const f = e.target.files && e.target.files[0];
-				if(f) readJsonFile(f)
-			});
+			class ExcelHandler {
+				static #workbook = null;
 
-			function readExcelFile(f) {
-				// --------------------------------------------------------------
-				//  Gather user‑provided options
-				// --------------------------------------------------------------
-				const headerRow = 0;//parseInt(document.getElementById('headerRow').value, 10) || 1;
-				const rangeSpec = '';//document.getElementById('rangeSpec').value.trim(); // empty → ignore
+				// To make the Excel Options panel sheet-specific, we need to track configuration 
+				// per sheet. Hence, the following state variables
+				static #sheetConfigs = {}; // { 'Sheet1': {headerRow: 1, maxRows: '', maxCols: ''}, ... }
+				static #currentSheet = null;
 
-				const r = new FileReader();
+				// UI elements specific to Excel Options panel
+				static #sheetSelect = document.getElementById('sheetSelect');
+				static #headerRowInput = document.getElementById('headerRow');
+				static #maxRowsInput = document.getElementById('maxRows');
+				static #maxColsInput = document.getElementById('maxCols');
 
-				r.onload = (e) => {
-					try {
-						const data = new Uint8Array(r.result);
-						const workbook = XLSX.read(data, { type: 'array' });
+				static #initialize(rawBuffer) {
+					const data = new Uint8Array(rawBuffer);
+					ExcelHandler.#workbook = XLSX.read(data, { type: 'array' });
 
-						jsonData = {};
+					// Initialize sheet configs with defaults
+					ExcelHandler.#sheetConfigs = {};
+					Object.keys(ExcelHandler.#workbook.Sheets).forEach(name => {
+						ExcelHandler.#sheetConfigs[name] = { headerRow: 1, maxRows: '', maxCols: '' };
+					});
 
-						// Build an Object with sheet names as keys
-						Object.entries(workbook.Sheets).forEach(([name, ws]) => {
-							if (!ws) {
-								// Still push something so the consumer knows the sheet existed
-								result.push({ sheet: name, data: [], warning: `Sheet "${name}" not found` });
-								return;
-							}
+					ExcelHandler.#currentSheet = Object.keys(ExcelHandler.#workbook.Sheets)[0]; // Select first sheet
 
-							const jsonOpts = {
-								defval: null,
-								raw: false,
-								header: headerRow - 1 // SheetJS expects zero‑based index
-							};
-							if (rangeSpec) jsonOpts.range = rangeSpec;
+					// Populate sheet selector (UI)
+					ExcelHandler.#sheetSelect.innerHTML = '';
+					Object.keys(ExcelHandler.#workbook.Sheets).forEach(name => {
+						const opt = document.createElement('option');
+						opt.value = name;
+						opt.textContent = name;
+						ExcelHandler.#sheetSelect.appendChild(opt);
+					});
+					ExcelHandler.#sheetSelect.value = ExcelHandler.#currentSheet;
 
-							const rows = XLSX.utils.sheet_to_json(ws, jsonOpts);
-							jsonData[name] = rows;
-						});
+					ExcelHandler.updateConfig(ExcelHandler.#currentSheet);
+				}
 
-						setStatus(`Loaded: ${f.name} — ${formatBytes(f.size)} — valid JSON`,'ok');
-						showErrors([]);
+				static reset() {
+					ExcelHandler.#workbook = null;
+					ExcelHandler.#sheetConfigs = {}; // Clear sheet configs
+					ExcelHandler.#currentSheet = null;
+				}
+
+				static readExcelFile(f) {
+					excelConfigPanel.style.display = 'none'; // Hide initially
+
+					const r = new FileReader();
+
+					r.onload = (e) => {
+						try {
+							const rawBuffer = e.target.result;
+							ExcelHandler.#initialize(rawBuffer);
+
+							excelConfigPanel.style.display = 'block';
+							ExcelHandler.processExcelData(); // Process only selected sheet
+
+							setStatus(`Loaded: ${f.name} — ${formatBytes(f.size)} — Excel parsed`, 'ok');
+							showErrors([]);
+							expandAllBtn.disabled = collapseAllBtn.disabled = copyRawBtn.disabled = downloadPrettyBtn.disabled = false;
+						} catch(err) {
+							ExcelHandler.reset();
+							excelConfigPanel.style.display = 'none';
+							jsonData = null;
+							render(null);
+							setStatus('Parse error — invalid Excel file', 'err');
+							showErrors([err.message]);
+						}
+					};
+
+					r.readAsArrayBuffer(f);
+				}
+
+				static processExcelData(sheetName=ExcelHandler.#currentSheet) {
+					const ws = ExcelHandler.#workbook.Sheets[sheetName];
+
+					jsonData = {};
+
+					if (!ws) {
+						jsonData[sheetName] = [];
 						render(jsonData);
-						expandAllBtn.disabled = collapseAllBtn.disabled = copyRawBtn.disabled = downloadPrettyBtn.disabled = false;
-					} catch(err) {
-						jsonData = null;
-						render(null);
-						setStatus('Parse error — invalid JSON','err');
-						showErrors([err.message]);
+						return;
+					}
+
+					// Get the used range of the sheet first
+					const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+					const jsonOpts = ExcelHandler.#getJsonOpts(sheetName, range);
+
+					const rows = XLSX.utils.sheet_to_json(ws, jsonOpts);
+					jsonData[sheetName] = rows;
+					render(jsonData);
+				}
+
+				static updateConfig(sheetName) {
+					ExcelHandler.#currentSheet = sheetName;
+
+					const cfg = ExcelHandler.#sheetConfigs[sheetName] || { headerRow: 1, maxRows: '', maxCols: '' };
+					ExcelHandler.#headerRowInput.value = cfg.headerRow;
+					ExcelHandler.#maxRowsInput.value = cfg.maxRows;
+					ExcelHandler.#maxColsInput.value = cfg.maxCols;
+				}
+
+				static #saveConfig(sheetName) {
+					ExcelHandler.#sheetConfigs[sheetName] = {
+						headerRow: parseInt(ExcelHandler.#headerRowInput.value, 10) || 1,
+						maxRows: ExcelHandler.maxRowsInput.value ? parseInt(ExcelHandler.maxRowsInput.value, 10) : '',
+						maxCols: ExcelHandler.maxColsInput.value ? parseInt(ExcelHandler.maxColsInput.value, 10) : ''
+					};
+				}
+
+				static applyConfig() {
+					if (!ExcelHandler.#workbook || !ExcelHandler.#currentSheet) {
+						setStatus('No Excel file loaded to refresh.', 'warn');
+						return;
+					}
+
+					ExcelHandler.#saveConfig(ExcelHandler.#currentSheet);
+
+					try {
+						ExcelHandler.processExcelData();
+						setStatus(`Applied settings for sheet "${ExcelHandler.#currentSheet}"`, 'ok');
+					} catch (err) {
+						setStatus('Error applying settings: ' + err.message, 'err');
 					}
 				};
 
-				// Read the file as an ArrayBuffer (binary)
-				r.readAsArrayBuffer(f);
+				static #getJsonOpts(sheetName, range) {
+					const cfg = ExcelHandler.#sheetConfigs[sheetName] || { headerRow: 1, maxRows: '', maxCols: '' };
+					const headerRowVal = cfg.headerRow;
+					const maxRowsVal = cfg.maxRows ? parseInt(cfg.maxRows, 10) : null;
+					const maxColsVal = cfg.maxCols ? parseInt(cfg.maxCols, 10) : null;
+					//const rangeSpec = '';//document.getElementById('rangeSpec').value.trim(); // empty → ignore
+
+					const jsonOpts = {
+						defval: null,
+						raw: false,
+						header: headerRowVal - 1
+					};
+
+					// Construct range string if limits are set (e.g., "A1:D100")
+					// We need to calculate the range based on max rows/cols relative to the header
+					if (maxRowsVal || maxColsVal) {
+						// Decode the sheet's used range
+						const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+
+						// Calculate the absolute end row (0-based)
+						// Formula: (Header Row Index) + (Max Rows - 1)
+						// Clamp it so we don't exceed the actual sheet size
+						const targetEndRow = (headerRowVal - 1) + (maxRowsVal ? maxRowsVal - 1 : 0);
+						const absEndRow = Math.min(range.e.r, targetEndRow);
+
+						// Calculate the absolute end column (0-based)
+						// Formula: (Max Cols - 1)
+						// Clamp it so we don't exceed the actual sheet size
+						const targetEndCol = maxColsVal ? maxColsVal - 1 : 0;
+						const absEndCol = Math.min(range.e.c, targetEndCol);
+
+						// Encode the range string (Start is always A1 -> 0,0)
+						const rangeStr = XLSX.utils.encode_range({ 
+							s: { r: 0, c: 0 }, 
+							e: { r: absEndRow, c: absEndCol } 
+						});
+
+						jsonOpts.range = rangeStr;
+					}
+				}
 			}
+
+			// Excel Config UI events
+			document.getElementById('sheetSelect').onchange = (e) => {
+				ExcelHandler.updateConfig(e.target.value);
+				ExcelHandler.processExcelData();
+			};
+
+			// Excel Config UI events
+			document.getElementById('applyExcelConfig').onclick = () => {
+				ExcelHandler.applyConfig();
+			};
 
 			// Helper to determine file type
 			function getFileType(filename) {
@@ -230,9 +383,11 @@
 				}
 
 				if (type === 'json') {
+					excelConfigPanel.style.display = 'none'; // Hide panel for JSON
+					ExcelHandler.reset();
 					readJsonFile(f);
 				} else {
-					readExcelFile(f);
+					ExcelHandler.readExcelFile(f);
 				}
 			}
 
@@ -300,27 +455,27 @@
 
 				const summary = document.createElement('span');
 				summary.className='summary';
-				if(t === 'string'){
+				if(t === 'string') {
 					summary.classList.add('type-string');
 					summary.textContent = JSON.stringify(value);
 				}
-				else if(t === 'number'){
+				else if(t === 'number') {
 					summary.classList.add('type-number');
 					summary.textContent = String(value);
 				}
-				else if(t === 'boolean'){
+				else if(t === 'boolean') {
 					summary.classList.add('type-boolean');
 					summary.textContent = String(value);
 				}
-				else if(t === 'null'){
+				else if(t === 'null') {
 					summary.classList.add('type-null');
 					summary.textContent = 'null';
 				}
-				else if(t === 'array'){
+				else if(t === 'array') {
 					summary.textContent = `Array(${value.length})`;
 					summary.title = 'Click to expand/collapse';
 				}
-				else if(t === 'object'){
+				else if(t === 'object') {
 					summary.textContent = `Object{${Object.keys(value).length}}`;
 					summary.title = 'Click to expand/collapse';
 				}
@@ -332,7 +487,7 @@
 					children.className = 'children';
 					const entries = t === 'object' ? Object.entries(value) : value.map((v, i) => [i, v]);
 					for(const[k, v]of entries) {
-						children.appendChild(buildNode(k,v,path+(key!==''?`/${key}`:'')));
+						children.appendChild(buildNode(k, v, path + (key !== '' ? `/${key}` : '')));
 					}
 					node.appendChild(children);
 					summary.onclick = () => toggleNode(node);
@@ -376,7 +531,7 @@
 			collapseAllBtn.onclick = () => expandCollapseAll(false);
 
 			copyRawBtn.onclick = async() => {
-				try{
+				try {
 					await navigator.clipboard.writeText(rawText||'');
 					setStatus('Raw JSON copied','ok');
 				} catch {
@@ -394,12 +549,13 @@
 			};
 
 			function clearHits() {
-				viewer.querySelectorAll('.hit').forEach(el=>el.classList.remove('hit'));
+				viewer.querySelectorAll('.hit').forEach(el => el.classList.remove('hit'));
 			}
+
 			function search(q) {
 				clearHits();
 				if(!q) return;
-				const re = new RegExp(q.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&'),'i');
+				const re = new RegExp(q.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'), 'i');
 				viewer.querySelectorAll('.pair').forEach(p => {
 					if(re.test(p.textContent))
 						p.classList.add('hit');
