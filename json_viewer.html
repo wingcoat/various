@@ -310,41 +310,57 @@
 					}
 				};
 
-				static #getJsonOpts(sheetName, range) { // range is the sheet's used range
+				static #getJsonOpts(sheetName, fullRange) { // fullRange is the sheet's used range
 					const cfg = ExcelHandler.#sheetConfigs[sheetName] || { headerRow: 1, maxRows: '', maxCols: '' };
 					const headerRowVal = cfg.headerRow;
 					const maxRowsVal = cfg.maxRows ? parseInt(cfg.maxRows, 10) : null;
 					const maxColsVal = cfg.maxCols ? parseInt(cfg.maxCols, 10) : null;
 					//const rangeSpec = '';//document.getElementById('rangeSpec').value.trim(); // empty → ignore
 
+					// Convert 1-based header row to 0-based index
+					const headerRowIndex = headerRowVal - 1;
+
 					const jsonOpts = {
 						defval: null,
 						raw: false,
-						header: headerRowVal - 1,
-						range: range
+						header: 0, // always 0 since we change the range to keep headerRow as first row.
+						range: fullRange
 					};
 
-					// Construct range string if limits are set (e.g., "A1:D100")
-					// We need to calculate the range based on max rows/cols relative to the header
-					if (maxRowsVal || maxColsVal) {
-						// Calculate the absolute end row (0-based)
-						// Formula: (Header Row Index) + (Max Rows - 1)
-						// Clamp it so we don't exceed the actual sheet size
-						const targetEndRow = (headerRowVal - 1) + (maxRowsVal ? maxRowsVal - 1 : range.e.r);
-						const absEndRow = Math.min(range.e.r, targetEndRow);
+					// Determine the range to process
+					// Start row MUST be the header row to avoid reading garbage data above it
+					let startRow = headerRowIndex;
+					let startCol = 0; // Always start at column A
 
-						// Calculate the absolute end column (0-based)
-						// Formula: (Max Cols - 1)
-						// Clamp it so we don't exceed the actual sheet size
-						const targetEndCol = maxColsVal ? maxColsVal - 1 : range.e.c;
-						const absEndCol = Math.min(range.e.c, targetEndCol);
-
-						// Encode the range string (Start is always A1 -> 0,0)
-						jsonOpts.range = XLSX.utils.encode_range({ 
-							s: { r: 0, c: 0 }, 
-							e: { r: absEndRow, c: absEndCol } 
-						});
+					// Calculate end row
+					let endRow = fullRange.e.r; // Default to sheet end
+					if (maxRowsVal) {
+						// If maxRows is 10, we want 10 data rows.
+						// Data rows start at headerRowIndex + 1.
+						// So endRow = headerRowIndex + maxRowsVal
+						// Wait, if maxRows includes header? Usually users mean data rows.
+						// Let's assume maxRows = number of data rows.
+						// Total rows to include = 1 (header) + maxRowsVal
+						// End index = headerRowIndex + maxRowsVal
+						const targetEndRow = headerRowIndex + maxRowsVal;
+						endRow = Math.min(fullRange.e.r, targetEndRow);
 					}
+
+					// Calculate end col
+					let endCol = fullRange.e.c;
+					if (maxColsVal) {
+						// If maxCols is 5, we want columns A, B, C, D, E (indices 0, 1, 2, 3, 4)
+						// End index = maxColsVal - 1
+						const targetEndCol = maxColsVal - 1;
+						endCol = Math.min(fullRange.e.c, targetEndCol);
+					}
+
+					// Construct the range string
+					// Start is at the header row (to avoid garbage above)
+					jsonOpts.range = XLSX.utils.encode_range({
+						s: { r: startRow, c: startCol },
+						e: { r: endRow, c: endCol }
+					});
 
 					return jsonOpts;
 				}
